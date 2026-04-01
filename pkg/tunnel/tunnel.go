@@ -10,12 +10,12 @@ import (
 
 // Start allocates the TUN device and begins listening for raw IP packets.
 func Start() {
-	// 1. Define the type of virtual hardware we want (TUN = Network Tunnel)
+	// Define the type of virtual hardware we want (TUN = Network Tunnel)
 	config := water.Config{
 		DeviceType: water.TUN,
 	}
 
-	// 2. Ask the Operating System kernel to actually create the hardware
+	// Ask the Operating System kernel to actually create the hardware
 	ifce, err := water.New(config)
 	if err != nil {
 		log.Fatalf("[Error] Failed to create TUN interface. Details: %v", err)
@@ -24,10 +24,10 @@ func Start() {
 	fmt.Printf("[Tunnel] Success! Virtual interface '%s' is online.\n", ifce.Name())
 	fmt.Println("[Tunnel] Listening for outbound IP packets...")
 
-	// 3. Create an optimized memory slice to hold incoming data
+	// Optimized memory slice to hold incoming data
 	packet := make([]byte, 1500)
 
-	// 4. The Infinite Network Loop
+	// Infinite Network Loop
 	for {
 		// Wait for the OS to hand us a packet
 		n, err := ifce.Read(packet)
