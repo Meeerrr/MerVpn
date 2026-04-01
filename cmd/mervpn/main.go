@@ -40,5 +40,5 @@ func main() {
 	}
 
 	// 5. Start the core interface (Both client and server need the TUN device)
-	tunnel.Start()
+	tunnel.Start(*mode)
 }
