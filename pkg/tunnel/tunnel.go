@@ -8,10 +8,9 @@ import (
 	"github.com/songgao/water"
 )
 
-// Start allocates the virtual interface and establishes the UDP network bridge.
-// It requires the 'mode' string to determine if it should act as a sender or receiver.
+// Start allocates the virtual interface and establishes the full duplex UDP network bridge.
 func Start(mode string) {
-	// Ask the operating system kernel to allocate a virtual network tunnel interface
+	// Allocate the virtual network interface from the Linux kernel
 	config := water.Config{DeviceType: water.TUN}
 	ifce, err := water.New(config)
 	if err != nil {
@@ -19,21 +18,21 @@ func Start(mode string) {
 	}
 	fmt.Printf("[Tunnel] Virtual interface '%s' is online.\n", ifce.Name())
 
-	// Prepare a pointer to hold our active network socket
 	var udpConn *net.UDPConn
+	var serverConn *net.UDPConn
+
+	// This variable will hold the Client's exact network location once they connect
+	var activeClientAddr *net.UDPAddr
 
 	if mode == "server" {
-		// The Server acts as the receiver, opening a local port and waiting for incoming traffic
 		addr, _ := net.ResolveUDPAddr("udp", ":9000")
-		udpConn, err = net.ListenUDP("udp", addr)
+		serverConn, err = net.ListenUDP("udp", addr)
 		if err != nil {
 			log.Fatalf("[Error] Server failed to open port: %v", err)
 		}
 		fmt.Println("[Network] UDP Server actively listening on Port 9000...")
 
 	} else if mode == "client" {
-		// The Client acts as the sender, aiming its network socket directly at the Server's address
-		// Note: Using the local loopback address (127.0.0.1) for testing purposes
 		addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:9000")
 		udpConn, err = net.DialUDP("udp", nil, addr)
 		if err != nil {
@@ -42,50 +41,53 @@ func Start(mode string) {
 		fmt.Println("[Network] UDP Client locked onto Server at 127.0.0.1:9000...")
 	}
 
-	// Launch a background Goroutine to continuously monitor the network socket for incoming data.
-	// This runs concurrently alongside the main interface loop so the engine never blocks or freezes.
+	// Launch the background receiver to catch internet traffic and inject it into the OS
 	go func() {
 		networkBuffer := make([]byte, 1500)
 		for {
-			n, _, err := udpConn.ReadFromUDP(networkBuffer)
+			var n int
+			var addr *net.UDPAddr
+			var err error
+
+			// Read incoming UDP packets based on our current mode
+			if mode == "server" {
+				n, addr, err = serverConn.ReadFromUDP(networkBuffer)
+				// The Server saves the Client's return address to memory so it can reply later
+				if err == nil {
+					activeClientAddr = addr
+				}
+			} else {
+				n, _, err = udpConn.ReadFromUDP(networkBuffer)
+			}
+
 			if err != nil {
 				continue
 			}
-			fmt.Printf("\n[Network Bridge] SUCCESS! Received %d raw bytes over UDP!\n", n)
+
+			// INJECTION: Force the received bytes directly into the local operating system
+			ifce.Write(networkBuffer[:n])
+			fmt.Printf("[Bridge -> OS] Injected %d bytes into the kernel.\n", n)
 		}
 	}()
 
-	// Create a memory buffer optimized for standard internet transmission unit sizes
 	packet := make([]byte, 1500)
 
-	// Enter the infinite loop to intercept packets routed into the virtual tunnel by the OS
+	// The main loop intercepts outgoing traffic from the OS and fires it over the bridge
 	for {
 		n, err := ifce.Read(packet)
 		if err != nil {
 			continue
 		}
 
-		analyzePacket(packet[:n])
-
-		// When operating as the client, immediately transmit intercepted packets across the UDP bridge
+		// ROUTING: Send the packet over the internet to the correct destination
 		if mode == "client" {
 			udpConn.Write(packet[:n])
-			fmt.Println("[Tunnel] -> Packet physically fired across UDP socket.")
+			fmt.Println("[OS -> Bridge] Packet fired to Server.")
+
+		} else if mode == "server" && activeClientAddr != nil {
+			// The Server uses the return address it saved earlier to fire the reply
+			serverConn.WriteToUDP(packet[:n], activeClientAddr)
+			fmt.Println("[OS -> Bridge] Reply fired back to Client.")
 		}
-	}
-}
-
-// analyzePacket extracts routing metadata directly from raw binary memory
-func analyzePacket(packet []byte) {
-	// Ensure the packet contains at least a standard IPv4 header length
-	if len(packet) < 20 {
-		return
-	}
-
-	// Use a bitwise shift to isolate the IP protocol version from the first byte
-	version := packet[0] >> 4
-	if version == 4 {
-		destIP := net.IPv4(packet[16], packet[17], packet[18], packet[19])
-		fmt.Printf("[Intercepted] IPv4 Packet attempting to reach -> %s (Size: %d bytes)\n", destIP.String(), len(packet))
 	}
 }
