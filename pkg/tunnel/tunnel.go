@@ -38,7 +38,7 @@ func Start(mode string, key []byte) {
 		fmt.Println("[Network] UDP Server actively listening on Port 9000...")
 
 	} else if mode == "client" {
-		addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:9000")
+		addr, _ := net.ResolveUDPAddr("udp", "192.168.1.35:9000")
 		udpConn, err = net.DialUDP("udp", nil, addr)
 		if err != nil {
 			log.Fatalf("[Error] Client failed to dial server: %v", err)
